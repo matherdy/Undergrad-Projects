@@ -1,0 +1,463 @@
+---
+title: "STT 461 Project"
+author: "Dylan Mather, Caitlyn Locke, Colin Richard"
+date: "4/20/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE,include = FALSE)
+```
+
+```{r}
+library(tidyverse)
+```
+
+
+```{r}
+
+
+pst_data <- read.csv("pst_data.csv")
+pst_data$date <- as.Date(with(pst_data, paste(Year, Month, Day,sep="-")), "%Y-%m-%d")
+
+mt_data <- read.csv("mt_data.csv")
+mt_data$date <- as.Date(with(mt_data, paste(Year, Month, Day,sep="-")), "%Y-%m-%d")
+
+est_data <- read.csv("est_data.csv")
+est_data$date <- as.Date(with(est_data, paste(Year, Month, Day,sep="-")), "%Y-%m-%d")
+
+ct_data <- read.csv("ct_data.csv")
+ct_data$date <- as.Date(with(ct_data, paste(Year, Month, Day,sep="-")), "%Y-%m-%d")
+
+
+```
+
+```{r}
+pst_data <-pst_data%>%
+  arrange(date)
+head(pst_data)
+tail(pst_data)
+
+ts_rest <- ts(pst_data$AvgTemperature, start = c(1995,01,01), end =c(2019,12,31), frequency = 365 )
+
+decomp_mult <- decompose(ts_rest, type = "multiplicative")
+
+
+plot(ts_rest)
+
+plot(decomp_mult$trend)
+plot(decomp_mult$seasonal)
+
+
+```
+```{r,include = FALSE}
+pst_data%>%
+  filter(Year == c(2000:2002))%>%
+  filter(AvgTemperature > -50)%>%
+  ggplot(aes(date,AvgTemperature)) + geom_point()+geom_smooth()
+pst_data%>%
+  filter(Year == c(2000:2004))%>%
+  filter(AvgTemperature > -50)%>%
+  ggplot(aes(date,AvgTemperature)) + geom_point()+geom_smooth()
+pst_data%>%
+  filter(Year == c(2000:2006))%>%
+  filter(AvgTemperature > -50)%>%
+  ggplot(aes(date,AvgTemperature)) + geom_point()+geom_smooth()
+```
+
+
+
+
+
+
+Pacific Data
+```{r}
+pst_avg_temp <- pst_data%>%
+  filter(AvgTemperature > -50)%>%
+  group_by(date)%>%
+  summarise(r_avg_temp = mean(AvgTemperature),year = mean(Year),day = mean(Day),month = mean(Month))
+  
+
+
+ts_rest_PST <- ts(pst_avg_temp$r_avg_temp, start = c(1995,01,01), end =c(2019,12,31), frequency = 365 )
+
+decomp_mult_PST <- decompose(ts_rest_PST, type = "multiplicative")
+
+
+
+plot(decomp_mult_PST$seasonal)
+
+
+```
+
+
+```{r}
+train <- pst_avg_temp%>%
+  filter(year < 2008)
+
+test <- pst_avg_temp%>%
+  filter(year >=2008)
+
+
+
+ccf(train$date,train$r_avg_temp)
+ccf(train$day,train$r_avg_temp)
+ccf(train$month,train$r_avg_temp)
+ccf(train$year,train$r_avg_temp)
+
+fit_pst = lm(r_avg_temp ~ date +lag(month,300) + day ,data = train)
+summary(fit_pst)
+
+
+pred_fit <- predict(fit_pst,test)
+
+plot(test$date,test$r_avg_temp)
+lines(test$date,pred_fit,col = "red",lwd=2)
+
+plot(pred_fit,test$r_avg_temp)
+
+```
+
+
+
+
+
+
+Hypothesis Testing for PST
+```{r}
+avg_tmp_pst_96_10 <- pst_avg_temp%>%
+  filter(year > 1996 & year < 2010)%>%
+  select(r_avg_temp)
+
+
+avg_tmp_pst_12_15 <- pst_avg_temp%>%
+  filter(year > 2012 & year < 2015)%>%
+  select(r_avg_temp)
+
+
+t.test(avg_tmp_pst_12_15,avg_tmp_pst_96_10, alternative = "greater")
+```
+
+
+
+
+Eastern Data
+
+```{r}
+est_avg_temp <- est_data%>%
+  filter(AvgTemperature > -50)%>%
+  group_by(date)%>%
+  summarise(r_avg_temp = mean(AvgTemperature),year = mean(Year),day = mean(Day),month = mean(Month))
+
+
+ts_rest_EST <- ts(est_avg_temp$r_avg_temp, start = c(1995,01,01), end =c(2019,12,31), frequency = 365 )
+
+decomp_mult_EST <- decompose(ts_rest_EST, type = "multiplicative")
+
+
+```
+
+Hypothesis Testing for EST
+```{r}
+avg_tmp_est_96_10 <- est_avg_temp%>%
+  filter(year > 1996 & year < 2010)%>%
+  select(r_avg_temp)
+
+
+avg_tmp_est_12_15 <- est_avg_temp%>%
+  filter(year > 2012 & year < 2015)%>%
+  select(r_avg_temp)
+
+
+t.test(avg_tmp_est_12_15,avg_tmp_est_96_10, alternative = "greater")
+```
+
+
+Central Data
+
+```{r}
+ct_avg_temp <- ct_data%>%
+  filter(AvgTemperature > -50)%>%
+  group_by(date)%>%
+  summarise(r_avg_temp = mean(AvgTemperature),year = mean(Year),day = mean(Day),month = mean(Month))
+
+
+ts_rest_CT <- ts(ct_avg_temp$r_avg_temp, start = c(1995,01,01), end =c(2019,12,31), frequency = 365 )
+
+decomp_mult_CT <- decompose(ts_rest_CT, type = "multiplicative")
+
+```
+
+Hypothesis Testing for CT
+```{r}
+avg_tmp_ct_96_10 <- ct_avg_temp%>%
+  filter(year > 1996 & year < 2010)%>%
+  select(r_avg_temp)
+
+
+avg_tmp_ct_12_15 <- ct_avg_temp%>%
+  filter(year > 2012 & year < 2015)%>%
+  select(r_avg_temp)
+
+
+t.test(avg_tmp_ct_12_15,avg_tmp_ct_96_10, alternative = "greater")
+```
+
+
+Mountain data
+
+
+```{r}
+mt_avg_temp <- mt_data%>%
+  filter(AvgTemperature > -50)%>%
+  group_by(date)%>%
+  summarise(r_avg_temp = mean(AvgTemperature),year = mean(Year),day = mean(Day),month = mean(Month))
+
+ts_rest_MT <- ts(mt_avg_temp$r_avg_temp, start = c(1995,01,01), end =c(2019,12,31), frequency = 365 )
+
+decomp_mult_MT <- decompose(ts_rest_MT, type = "multiplicative")
+
+```
+
+Hypothesis Testing for MT
+```{r}
+avg_tmp_mt_96_10 <- mt_avg_temp%>%
+  filter(year > 1996 & year < 2010)%>%
+  select(r_avg_temp)
+
+
+avg_tmp_mt_12_15 <- mt_avg_temp%>%
+  filter(year > 2012 & year < 2015)%>%
+  select(r_avg_temp)
+
+
+t.test(avg_tmp_mt_12_15,avg_tmp_mt_96_10, alternative = "greater")
+```
+
+
+Fresno Data
+```{r}
+Fresno_temp <- pst_data%>%
+  filter(City == "Fresno" & AvgTemperature > -50)
+
+ts_rest_fresno <- ts(Fresno_temp$AvgTemperature, start = c(1995,01,01), end =c(2019,12,31), frequency = 365 )
+
+decomp_mult_fesno <- decompose(ts_rest_fresno, type = "multiplicative")
+
+```
+
+
+
+Los Angeles Data
+```{r}
+LA_temp <- pst_data%>%
+  filter(City == "Los Angeles" & AvgTemperature > -50)
+
+ts_rest_LA <- ts(LA_temp$AvgTemperature, start = c(1995,01,01), end =c(2019,12,31), frequency = 365 )
+
+decomp_mult_LA <- decompose(ts_rest_LA, type = "multiplicative")
+
+```
+
+
+Sacramento
+```{r}
+Sac_temp <- pst_data%>%
+  filter(City == "Sacramento" & AvgTemperature > -50)
+
+ts_rest_Sac <- ts(Sac_temp$AvgTemperature, start = c(1995,01,01), end =c(2019,12,31), frequency = 365 )
+
+decomp_mult_Sac <- decompose(ts_rest_Sac, type = "multiplicative")
+
+```
+
+
+
+San Diego Data
+```{r}
+SD_temp <- pst_data%>%
+  filter(City == "San Diego" & AvgTemperature > -50)
+
+ts_rest_SD <- ts(SD_temp$AvgTemperature, start = c(1995,01,01), end =c(2019,12,31), frequency = 365 )
+
+decomp_mult_SD <- decompose(ts_rest_SD, type = "multiplicative")
+
+```
+
+
+San Francisco Data
+```{r}
+SF_temp <- pst_data%>%
+  filter(City == "San Francisco" & AvgTemperature > -50)
+
+ts_rest_SF <- ts(SF_temp$AvgTemperature, start = c(1995,01,01), end =c(2019,12,31), frequency = 365 )
+
+decomp_mult_SF <- decompose(ts_rest_SF, type = "multiplicative")
+
+```
+
+
+
+Reno Data
+```{r}
+Reno_temp <- pst_data%>%
+  filter(City == "Reno" & AvgTemperature > -50)
+
+ts_rest_Reno <- ts(Reno_temp$AvgTemperature, start = c(1995,01,01), end =c(2019,12,31), frequency = 365 )
+
+decomp_mult_Reno <- decompose(ts_rest_Reno, type = "multiplicative")
+
+```
+
+
+Las Vegas Data
+```{r}
+LV_temp <- pst_data%>%
+  filter(City == "Las Vegas" & AvgTemperature > -50)
+
+ts_rest_LV <- ts(LV_temp$AvgTemperature, start = c(1995,01,01), end =c(2019,12,31), frequency = 365 )
+
+decomp_mult_LV <- decompose(ts_rest_LV, type = "multiplicative")
+
+
+```
+
+Eugene Data
+```{r}
+Eug_temp <- pst_data%>%
+  filter(City == "Eugene" & AvgTemperature > -50)
+
+ts_rest_Eug <- ts(Eug_temp$AvgTemperature, start = c(1995,01,01), end =c(2019,12,31), frequency = 365 )
+
+decomp_mult_Eug <- decompose(ts_rest_Eug, type = "multiplicative")
+
+```
+
+Medford Data
+```{r}
+Med_temp <- pst_data%>%
+  filter(City == "Medford" & AvgTemperature > -50)
+
+ts_rest_Med <- ts(Med_temp$AvgTemperature, start = c(1995,01,01), end =c(2019,12,31), frequency = 365 )
+
+decomp_mult_Med <- decompose(ts_rest_Med, type = "multiplicative")
+
+
+```
+
+
+Portland Data
+```{r}
+Port_temp <- pst_data%>%
+  filter(City == "Portland" & AvgTemperature > -50)
+
+ts_rest_Port <- ts(Port_temp$AvgTemperature, start = c(1995,01,01), end =c(2019,12,31), frequency = 365 )
+
+decomp_mult_Port <- decompose(ts_rest_Port, type = "multiplicative")
+
+```
+
+
+
+Salem Data
+```{r}
+Sal_temp <- pst_data%>%
+  filter(City == "Salem" & AvgTemperature > -50)
+
+ts_rest_Sal <- ts(Sal_temp$AvgTemperature, start = c(1995,01,01), end =c(2019,12,31), frequency = 365 )
+
+decomp_mult_Sal <- decompose(ts_rest_Sal, type = "multiplicative")
+
+
+```
+
+Seattle Data
+```{r}
+Sea_temp <- pst_data%>%
+  filter(City == "Seattle" & AvgTemperature > -50)
+
+ts_rest_Sea <- ts(Sea_temp$AvgTemperature, start = c(1995,01,01), end =c(2019,12,31), frequency = 365 )
+
+decomp_mult_Sea <- decompose(ts_rest_Sea, type = "multiplicative")
+
+
+```
+
+
+Spokane Data
+```{r}
+Spok_temp <- pst_data%>%
+  filter(City == "Spokane" & AvgTemperature > -50)
+
+ts_rest_Spok <- ts(Spok_temp$AvgTemperature, start = c(1995,01,01), end =c(2019,12,31), frequency = 365 )
+
+decomp_mult_Spok <- decompose(ts_rest_Spok, type = "multiplicative")
+
+```
+
+Yakima Data
+```{r}
+Yaki_temp <- pst_data%>%
+  filter(City == "Yakima" & AvgTemperature > -50)
+
+
+ts_rest_Yaki <- ts(Yaki_temp$AvgTemperature, start = c(1995,01,01), end =c(2019,12,31), frequency = 365 )
+
+decomp_mult_Yaki <- decompose(ts_rest_Yaki, type = "multiplicative")
+
+
+```
+
+
+```{r}
+ts.plot(decomp_mult_PST$trend, decomp_mult_EST$trend, decomp_mult_CT$trend,
+        decomp_mult_MT$trend, col = c("red","green","blue","purple"), 
+        main = "Temperature Trends for the Time Zones in USA",
+        ylab = "Temperature (F)", lwd = c(3,1,1,1))
+legend("topl", legend=c("PST", "EST","MT","CT"), ncol = 4,
+       col=c("red", "green","purple","blue"), lty=1, cex=0.8,lwd = 2)
+```
+
+
+```{r}
+ts.plot(decomp_mult_SD$trend,decomp_mult_LA$trend,decomp_mult_fesno$trend,
+        decomp_mult_Sac$trend, decomp_mult_SF$trend, col = c("red","green","blue",
+                                                       "purple", "orange"),
+        main = "Temperature Trends for California, USA",
+        ylab = "Temperature (F)")
+legend("topl", legend=c("SD", "LA", "Fresno", "Sacramento",
+                        "SF"), ncol = 3,
+       col=c("red","green","blue","purple","orange"), lty=1, cex=0.8, lwd = 2)
+```
+```{r}
+ts.plot(decomp_mult_Eug$trend, decomp_mult_Med$trend,
+        decomp_mult_Port$trend, decomp_mult_Sal$trend, col = c("red","green","purple","blue"),
+        main = "Temperature Trends for Oregon, USA",
+        ylab = "Temperature (F)")
+legend("topl", legend=c("Eugene", "Medford", "Portland", "Salem"), ncol = 2,
+       col=c("red","green","purple","blue"), lty=1, cex=0.8, lwd = 2)
+```
+
+
+```{r}
+ts.plot(decomp_mult_Sea$trend,decomp_mult_Spok$trend,
+        decomp_mult_Yaki$trend, col = c("red","green","blue"),
+        main = "Temperature Trends for Washington, USA",
+        ylab = "Temperature (F)")
+legend("topl", legend=c("Seattle","Spokane","Yakima"), ncol = 4,
+       col=c("red","green","blue"), lty=1, cex=0.8, lwd = 2)
+```
+
+```{r}
+ts.plot(decomp_mult_LV$trend, decomp_mult_Reno$trend, col = c("red","green"),
+        main = "Temperature Trends for Nevada, USA",
+        ylab = "Temperature (F)")
+legend("topl", legend=c("Las Vegas", "Reno"), ncol = 2,
+       col=c("red","green","purple"), lty=1, cex=0.8, lwd = 2)
+```
+
+The most recent El Ninos were in 2002–03, 2004–05, 2006–07, 2009–10, 2014–16, and 2018–19
+The one starting in 2014 was the longest being 2 years long which most likely accounts for the large spike in the
+Pacific data around the same time.
+
+

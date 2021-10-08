@@ -1,0 +1,182 @@
+---
+title: "Project"
+author: "Group 11"
+date: "12/6/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+
+```{r}
+library(tidyverse)
+library(infer)
+library(knitr)
+library(broom)
+```
+
+
+
+```{r football data,echo=FALSE}
+fb_data <- read.csv("CFB2019.csv")
+
+conf_data <- fb_data %>% 
+  separate(col = "Team", into = c("Team","Conference"),sep = "([():])" , remove = TRUE)
+
+
+conf_data%>%
+  group_by(Conference)%>%
+  summarise(mean(Off.Rank),mean(Def.Rank))
+
+
+  
+unique(conf_data$Conference)
+
+
+p5 <- conf_data%>%
+  filter(Conference == "Big Ten" | Conference=="Pac-12"|Conference=="ACC"|Conference=="SEC"|Conference=="Big 12")
+  
+```
+```{r}
+p5_new<- p5%>%
+  mutate(Def.focused = Def.Rank < Off.Rank)%>%
+  mutate(TD.ratio = Off.TDs/Off.TDs.Allowed)
+  
+ 
+p5_new%>%
+    select(Team,Conference,Def.focused,TD.ratio)
+  
+```
+
+```{r}
+p5_new%>%
+  ggplot(aes(Off.Yards,TD.ratio)) + 
+  geom_point(aes(shape=Conference,color=Conference)) + 
+  labs(title="Offence",x="First Downs",y="TD Ratio")
+  
+
+p5_new%>%
+  ggplot(aes(Yards.Allowed,TD.ratio)) + geom_point(aes(shape=Conference,color=Conference)) + labs(title="Defense",x="First Downs Allowed",y="TD Ratio")
+
+```
+
+```{r}
+
+
+p5%>%
+  group_by(Conference)%>%
+  
+  summarise(yards.allowed.conference = mean(Yards.Allowed)/length(Conference))%>% # we normalized the plot by number of teams
+  
+  ggplot(aes(Conference,yards.allowed.conference))+
+  geom_bar(stat="identity",fill = c("black","red","darkgreen","darkblue","gold")) +
+  #coord_cartesian(ylim =c(4000,5200))+
+  labs(title = "Yards Allowed by Defence per Team",y="Yards")
+
+```
+
+
+
+```{r}
+p5%>%
+  group_by(Conference)%>%
+  summarise(avg_yards =mean(Off.Yards)/length(Conference))%>%
+  ggplot(aes(Conference,avg_yards))+geom_histogram(stat = 'identity',fill= c("black","red","darkgreen","darkblue","gold"))+
+  labs(title = "Average Yards per Team",y="Yards")#+scale_color_manual(values =c("black","red","darkgreen","darkblue","gold"))+ theme_bw()
+
+```
+
+
+```{r}
+
+p5%>%
+  group_by(Conference) %>% 
+
+  summarise("Average_TDs_Allowed" = mean(Off.TDs.Allowed),
+            "Average_TDs_Scored" = mean(Off.TDs)) %>%
+  ggplot(aes(Average_TDs_Scored, Average_TDs_Allowed),size = 20) + geom_point(aes(color = Conference,shape = Conference)) + labs(x = "Average TDs Scored", y = "Average TDs Allowed ", title = "Power 5 Conference Season TDs") + scale_color_manual(values =c("black","red","darkgreen","darkblue","gold")) + theme_bw()
+
+```
+
+```{r}
+conf_data%>% 
+  filter(Conference == "ACC" | Conference == "Big Ten" | Conference == "SEC" | Conference == "Pac-12" | Conference == "Big 12") %>% 
+
+  group_by(Conference) %>% 
+  summarise("TD_ratio" = Off.TDs/Off.TDs.Allowed,Interceptions.Thrown.x) %>% 
+  ggplot(aes(Interceptions.Thrown.x,TD_ratio)) + geom_point(aes(color = Conference,shape = Conference)) + scale_color_manual(values =c("black","red","darkgreen","darkblue","gold")) + theme_bw()
+```
+
+```{r}
+p5_new%>%
+
+  group_by(Conference) %>% 
+  
+  ggplot(aes(Pass.Completions,TD.ratio)) + geom_point(aes(color = Conference,shape = Conference))+ scale_color_manual(values =c("black","red","darkgreen","darkblue","gold"))+ theme_bw()
+
+```
+
+
+
+
+
+
+```{r}
+p5%>%
+  group_by(Conference)%>%
+  summarise(avg_td = sum(Off.TDs),teams = length(Conference))
+```
+
+```{r}
+p5_new%>%
+  
+  group_by(Conference)%>%
+  summarise(n_teams_cof = n())
+
+p5_new%>%
+  filter(Def.focused == TRUE)%>%
+  group_by(Conference)%>%
+  summarise(n_teams_cof = n())
+
+
+```
+
+
+```{r}
+null <- p5_new%>%
+ 
+  filter(Def.focused == TRUE)
+dist <- null%>%
+  specify(response = TD.ratio)%>%
+  hypothesise(null='point',mu =1.306365)%>%
+  generate(reps=10000,type = 'bootstrap')%>%
+  calculate(stat = 'mean')
+dist%>%  
+  ggplot(aes(x=stat))+geom_histogram(binwidth = .01,color='purple',fill='gray') + geom_vline(xintercept = 1.339271)+labs(title = 'Defence Focused TD Ratio', x="TD Ratio")
+
+
+dist%>%
+  filter(stat >= 1.339271)%>%
+  summarise(p_value = n()/nrow(dist))
+```
+```{r}
+null <- p5_new%>%
+ 
+  filter(Def.focused == FALSE,abs(Off.Rank-Def.Rank)>50)
+dist <- null%>%
+  specify(response = TD.ratio)%>%
+  hypothesise(null='point',mu = 1.339271)%>%
+  generate(reps=10000,type = 'bootstrap')%>%
+  calculate(stat = 'mean')
+dist%>%  
+  ggplot(aes(x=stat))+geom_histogram(binwidth = .01,color='purple',fill='gray') + geom_vline(xintercept = 1.306365) +labs(title = 'Offense Focused TD Ratio', x="TD Ratio")
+
+
+dist%>%
+  filter(stat <= 1.306365)%>%
+  summarise(p_value = n()/nrow(dist))
+```
+

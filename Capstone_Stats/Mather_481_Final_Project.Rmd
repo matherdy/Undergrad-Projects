@@ -1,0 +1,600 @@
+---
+title: "481 Final Project"
+author: "Dylan Mather"
+date: "4/21/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Introduction 
+
+Being able to predict the price of a home based on its attributes is very helpful in order to know that you are not overpaying for what you are buying or if the listing price is a good deal.  This project focuses on using multiple statistic modeling and analysis methods in order to forecast home prices in Ames, Iowa.  The data from kaggle contains 79 explanatory variables that can be used to make this prediction.
+
+
+
+
+
+
+
+
+```{r, message=FALSE}
+library(tidyverse)
+library(purrr)
+library(FNN)
+library(boot)
+library(leaps)
+library(glmnet)
+library(tree)
+library(gbm)
+library(randomForest)
+library(gam)
+```
+
+# The Raw Data
+The data comes with 81 variables including the house Id, as well as 79 attributes for each house and the sale price of that house.  The many attributes come in different data types, from a scale from 1-10 of overall condition of the house, to the year it was built, and even which Roofing material is used for the house.  Many of these columns are not in formats that are compatible with the models I use in my project and there are many NA values, so this data needs a lot of cleaning.
+
+```{r}
+train <- read.csv("train.csv")[-1]
+test <- read.csv("test.csv")[-1]
+
+
+head(train)
+```
+
+# Cleaning
+ In order to clean this data I first changed the levels of each of the variables that did not have a set numerical scale already.  I then turned these newly ordered levels into numerical values so I could use these for my models as well.  I then used pipping in order to find the rest of the variables whose levels I had not converted into numerical scales and let R randomly assign numerical variables to them since these columns did not have a hierarchy.  I then replaced all the NA values with 0 which makes sense for how I scaled the variables since, for example, if a house doesn't have a basement their basement quality will be 0.  Lastly I converted the data onto a log scale so it was easier for my models to predict the prices of larger numbers.  After I finished cleaning the data I was ready to put all the columns into use for predicting the house prices. 
+ 
+
+```{r}
+train$ExterQual <- factor(train$ExterQual, levels = c("Po","Fa","TA","Gd","Ex"))
+train$ExterQual <- as.numeric(train$ExterQual)
+
+train$LotShape <- factor(train$LotShape, levels = c("IR3","IR2","IR1","Reg"))
+train$LotShape <- as.numeric(train$LotShape)
+
+train$Utilities <- factor(train$Utilities, levels = c("ELO","NoSeWa","NoSewr","AllPub"))
+train$Utilities <- as.numeric(train$Utilities)
+
+train$LandSlope <- factor(train$LandSlope, levels = c("Sev","Mod","Gtl"))
+train$LandSlope <- as.numeric(train$LandSlope)
+
+train$BldgType <- factor(train$BldgType, levels = c("TwnhsI", "TwnhsE","Duplx","2FmCon", "1Fam"))
+train$BldgType <- as.numeric(train$BldgType)
+
+train$ExterCond <- factor(train$ExterCond, levels =c("Po","Fa","TA","Gd","Ex"))
+train$ExterCond <- as.numeric(train$ExterCond)
+
+train$BsmtQual <- factor(train$BsmtQual, levels = c("NA","Po","Fa","TA","Gd","Ex"))
+train$BsmtQual <- as.numeric(train$BsmtQual)
+
+train$BsmtCond <- factor(train$BsmtCond, levels = c("NA","Po","Fa","TA","Gd","Ex"))
+train$BsmtCond <- as.numeric(train$BsmtCond)
+
+train$BsmtExposure <- factor(train$BsmtExposure, levels = c("NA","No","Mn","Av","Gd"))
+train$BsmtQual <- as.numeric(train$BsmtQual)
+
+train$BsmtFinType1 <- factor(train$BsmtFinType1, levels = c("NA","Unf","LwQ","Rec","BLQ","ALQ","GLQ"))
+train$BsmtFinType1 <- as.numeric(train$BsmtFinType1)
+
+train$BsmtFinType2 <- factor(train$BsmtFinType2, levels = c("NA","Unf","LwQ","Rec","BLQ","ALQ","GLQ"))
+train$BsmtFinType2 <- as.numeric(train$BsmtFinType2)
+
+train$HeatingQC <- factor(train$HeatingQC, levels = c("Po","Fa","TA","Gd","Ex"))
+train$HeatingQC <- as.numeric(train$HeatingQC)
+
+
+train$KitchenQual <- factor(train$KitchenQual, levels = c("Po","Fa","TA","Gd","Ex"))
+train$KitchenQual <- as.numeric(train$KitchenQual)
+
+train$FireplaceQu <- factor(train$FireplaceQu, levels = c("Po","Fa","TA","Gd","Ex"))
+train$FireplaceQu <- as.numeric(train$FireplaceQu)
+
+train$GarageFinish <- factor(train$GarageFinish, levels = c("NA", "Unf", "RFn", "Fin"))
+train$GarageFinish <- as.numeric(train$GarageFinish)
+
+train$GarageQual <- factor(train$GarageQual, levels = c("Po","Fa","TA","Gd","Ex"))
+train$GarageQual <- as.numeric(train$GarageQual)
+
+train$GarageCond <- factor(train$GarageCond, levels = c("Po","Fa","TA","Gd","Ex"))
+train$GarageCondl <- as.numeric(train$GarageCond)
+
+train$PoolQC <- factor(train$PoolQC, levels = c("NA","Fa","TA","Gd","Ex"))
+train$PoolQC <- as.numeric(train$PoolQC)
+
+train$Fence <- factor(train$Fence, levels = c("Na","MnWw","GdWo","MnPrv","GdPrv"))
+train$Fence <- as.numeric(train$Fence)
+
+
+for (i in 1:length(train$SalePrice)) {
+train$CentralAir[i] <- ifelse(as.factor(train$CentralAir)[i] == "Y", 1, 0)
+}
+
+
+
+train <- train%>%
+  map_if(is.character,factor)%>%
+  map_if(is.factor, as.numeric)
+train = as.data.frame(train)
+
+train <- log(train)
+
+train[] <- lapply(train, function(x){replace(x,is.na(x) | is.infinite(x),0)})
+
+
+```
+
+
+```{r}
+test$ExterQual <- factor(test$ExterQual, levels = c("Po","Fa","TA","Gd","Ex"))
+test$ExterQual <- as.numeric(test$ExterQual)
+
+test$LotShape <- factor(test$LotShape, levels = c("IR3","IR2","IR1","Reg"))
+test$LotShape <- as.numeric(test$LotShape)
+
+test$Utilities <- factor(test$Utilities, levels = c("ELO","NoSeWa","NoSewr","AllPub"))
+test$Utilities <- as.numeric(test$Utilities)
+
+test$LandSlope <- factor(test$LandSlope, levels = c("Sev","Mod","Gtl"))
+test$LandSlope <- as.numeric(test$LandSlope)
+
+test$BldgType <- factor(test$BldgType, levels = c("TwnhsI", "TwnhsE","Duplx","2FmCon", "1Fam"))
+test$BldgType <- as.numeric(test$BldgType)
+
+test$ExterCond <- factor(test$ExterCond, levels =c("Po","Fa","TA","Gd","Ex"))
+test$ExterCond <- as.numeric(test$ExterCond)
+
+test$BsmtQual <- factor(test$BsmtQual, levels = c("NA","Po","Fa","TA","Gd","Ex"))
+test$BsmtQual <- as.numeric(test$BsmtQual)
+
+test$BsmtCond <- factor(test$BsmtCond, levels = c("NA","Po","Fa","TA","Gd","Ex"))
+test$BsmtCond <- as.numeric(test$BsmtCond)
+
+test$BsmtExposure <- factor(test$BsmtExposure, levels = c("NA","No","Mn","Av","Gd"))
+test$BsmtQual <- as.numeric(test$BsmtQual)
+
+test$BsmtFinType1 <- factor(test$BsmtFinType1, levels = c("NA","Unf","LwQ","Rec","BLQ","ALQ","GLQ"))
+test$BsmtFinType1 <- as.numeric(test$BsmtFinType1)
+
+test$BsmtFinType2 <- factor(test$BsmtFinType2, levels = c("NA","Unf","LwQ","Rec","BLQ","ALQ","GLQ"))
+test$BsmtFinType2 <- as.numeric(test$BsmtFinType2)
+
+test$HeatingQC <- factor(test$HeatingQC, levels = c("Po","Fa","TA","Gd","Ex"))
+test$HeatingQC <- as.numeric(test$HeatingQC)
+
+
+
+test$KitchenQual <- factor(test$KitchenQual, levels = c("Po","Fa","TA","Gd","Ex"))
+test$KitchenQual <- as.numeric(test$KitchenQual)
+
+test$FireplaceQu <- factor(test$FireplaceQu, levels = c("Po","Fa","TA","Gd","Ex"))
+test$FireplaceQu <- as.numeric(test$FireplaceQu)
+
+test$GarageFinish <- factor(test$GarageFinish, levels = c("NA", "Unf", "RFn", "Fin"))
+test$GarageFinish <- as.numeric(test$GarageFinish)
+
+test$GarageQual <- factor(test$GarageQual, levels = c("Po","Fa","TA","Gd","Ex"))
+test$GarageQual <- as.numeric(test$GarageQual)
+
+test$GarageCond <- factor(test$GarageCond, levels = c("Po","Fa","TA","Gd","Ex"))
+test$GarageCondl <- as.numeric(test$GarageCond)
+
+test$PoolQC <- factor(test$PoolQC, levels = c("NA","Fa","TA","Gd","Ex"))
+test$PoolQC <- as.numeric(test$PoolQC)
+
+test$Fence <- factor(test$Fence, levels = c("Na","MnWw","GdWo","MnPrv","GdPrv"))
+test$Fence <- as.numeric(test$Fence)
+
+
+for (i in 1:length(test$SalePrice)) {
+test$CentralAir[i] <- ifelse(as.factor(test$CentralAir)[i] == "Y", 1, 0)
+}
+
+test <- test%>%
+  map_if(is.character,factor)%>%
+  map_if(is.factor, as.numeric)
+test = as.data.frame(test)
+
+
+test <- log(test)
+
+test[] <- lapply(test, function(x){replace(x,is.na(x) | is.infinite(x),0)})
+
+
+
+test$SalePrice = 0
+
+```
+
+
+# Knn Fit
+
+```{r}
+
+
+knn.cv <- NULL
+knn.predict <- NULL
+
+k_vals <- c(1:10,15,20,30,40,50,60,70,80,90,100)
+for (k in 1:length(k_vals)){
+  fit.knn <- knn.reg(train,y = train$SalePrice,k=k_vals[k])
+  knn.cv[k] <- mean(fit.knn$PRESS)
+   
+}
+plot(knn.cv)
+which.min(knn.cv)
+fit.knn <- knn.reg(train,y = train$SalePrice,k=5)
+knn_pred_matrix <- matrix(exp(fit.knn$pred))
+
+sqrt(knn.cv[1])
+
+#write.csv(knn_pred_matrix, "knn_pred.csv")
+fit.knn <- knn.reg(train,y = train$SalePrice,k=5)
+
+```
+In order to choose the tuning parameter k I ran the knn.reg function with the values 1:10,15,20,30,40,50,60,70,80,90,100.  I then found which of the k values resulted in the lowest cv value and ran the knn.reg again with just that k value so I could take the prediction value from it. From the graph its clear to see that there is a steady increase in MSE as K increases. The increase in slope comes from k being increased at a faster rate.
+My RMSE that I calculated for KNN was higher than the kaggles calculated RMSE but this prediction method still gave me the worst prediction accuracy.  
+
+
+# Linear Fit
+
+```{r}
+#innitail fit
+fit.glm <- glm(SalePrice ~ ., data = train)
+summary(fit.glm)
+plot(fit.glm)
+```
+
+
+  Since I log transformed the data these graphs, especially the residuals vs fitted and residuals vs leverage graphs, show the fit is much more linear.  There are some outlier points but I am unable to remove them since I need to have the full data set to properly predict the price of all the houses in the training set.
+
+
+  Not surprisingly, one of the most significant predictors is the overall quality of the house. How much the price went up with each level on the scale for quality of the house is more difficult to understand compared to my midterm project since I did a log transformation of the data.  I can still tell that this variable has a very big impact on the price of the house however since it moved the log of the price up by 0.2763. Another variable that had a major impact was the year the house was built since every additional year the house was built increased the log of the sale price up by 3.558.  Some of the variables that I was surprised to see had very low p values were Screen Porch area and fireplace quality.  Neither of these variables moved the log of the sale price up by very much, only .009379 and .03219 respectively. There are many other significant coefficients shown by their p value being less than .001.  They affect the price of the house by their estimate value.
+  
+  
+ 
+
+```{r, warning=FALSE}
+#linear prediction
+
+
+
+glmcv <- cv.glm(train,fit.glm)
+glm_pred <- predict.glm(fit.glm,test)
+glm_pred_matrix <- matrix(exp(glm_pred))
+
+#write.csv(glm_pred_matrix, "glm_pred_final.csv")
+
+```
+
+```{r}
+sqrt(glmcv$delta[1])
+```
+
+  Again the RMSE I calculated for GLM was higher than the prediction score I got on Kagggle but since I used a log scale to calculated my RMSE like kaggle did my score is much closer to their score.
+  
+  
+
+
+# Subset Selection
+
+```{r}
+length(train)
+
+regfit.fwd <- regsubsets(SalePrice ~ . , data = train,nvmax = 79,method = "forward")
+
+regfit.fwd.summary <- summary(regfit.fwd)
+which.min(regfit.fwd.summary$bic)
+plot(regfit.fwd.summary$bic)
+
+regfit.bwd <- regsubsets(SalePrice ~ . , data = train,nvmax = 79,method = "backward")
+
+regfit.bwd.summary <- summary(regfit.bwd)
+which.min(regfit.bwd.summary$bic)
+
+plot(regfit.fwd,scale = "bic")
+
+coef(regfit.fwd,21)
+
+
+```
+
+ 
+  For subset selection for this data, forward is the best since we have many predictors so we can slowly keep adding the most effective predictors since too many predictors might over fit the data. I chose to use the BIC criterion since there are so many predictors that I used to fit this model having a high penalty is useful. This selection method uses cross validation to see at which point in adding variables does the error become the smallest according to BIC.  This model has the optimal prediction tuning when the 21 best predictors are used. 
+  Similar the linear model coefficients, the coefficients for the subset selection model works in the same way. For example, the year built will raise the log of the sale price up by 4.88 and the above ground living area will also increase the log of the price by 0.566.  
+  
+
+
+```{r}
+
+error_vals <- rep(NA,78)
+x.test = model.matrix(SalePrice ~. , data = test)
+x.test = model.matrix(SalePrice ~. , data = test)
+for (i in 1:78){
+  coefi = coef(regfit.fwd, id = i)
+  pred = x.test[,names(coefi)]%*% coefi
+  error_vals[i] = mean((test$SalePrice - pred)^2)
+}
+
+plot(sqrt(error_vals))
+which.min(sqrt(error_vals))
+
+coefi = coef(regfit.fwd, id = 21)
+pred = x.test[,names(coefi)]%*% coefi
+sub_pred_matrix <- matrix(exp(pred))
+#write.csv(sub_pred_matrix, "subset_pred.csv")
+```
+The code above is to calculate the prediction value based of the subset selection of 21.  
+
+
+
+```{r eval = FALSE, echo = FALSE}
+folds <- sample(1:10,nrow(train),replace = T)
+cv.errors <- matrix(NA, k, 78, dimnames = list(NULL, paste(1:78)))
+
+x.test = model.matrix(SalePrice ~. , data = test)
+for (k in 1:10){
+  fit.fwd <- regsubsets(SalePrice ~ . , data = train[folds != k,],nvmax = 78, method = "forward")
+  
+  for (i in 1:78){
+    pred.fwd = predict(fit.fwd,train[folds == k,],id = i )
+    
+    cv.errors[k,i] = sqrt(mean((train$SalePrice[folds == k]-pred.fwd)^2))
+  }
+}
+mean(cv.errors)
+
+```
+My calculated cv RMSE for forward subset selection was higher than my RMSE for glm however when I put my predictions into kaggle, this model gave me the lowest RMSE and therefore the best predictions so far.
+
+
+# Shinkage Methods
+
+```{r}
+
+
+grid <- 10^seq(10,-2,length = 100)
+
+test_matrix <- model.matrix(SalePrice ~ . , data = test)
+train_matrix <- model.matrix(SalePrice ~ . , data = train)
+
+cv.ridge <- cv.glmnet(train_matrix, train$SalePrice, alpha = 0, lambda = grid)
+
+min.ridge <- cv.ridge$cvm[cv.ridge$lambda==cv.ridge$lambda.min]
+plot(cv.ridge)
+
+
+cv.lasso <- cv.glmnet(train_matrix, train$SalePrice, alpha = 1,lambda = grid)
+
+min.lasso <- cv.lasso$cvm[cv.lasso$lambda == cv.lasso$lambda.min] 
+plot(cv.lasso)
+
+
+print("Ridge RMSE:")
+sqrt(min.ridge)
+coef(cv.ridge$glmnet.fit)[,cv.ridge$index[1]]
+
+print("Lasso RMSE:")
+sqrt(min.lasso)
+coef(cv.lasso$glmnet.fit)[,cv.lasso$index[1]]
+
+
+
+ridge_pred <- predict(cv.ridge, s = cv.ridge$lambda.min, newx = test_matrix)
+ridge_pred_matrix <- matrix(exp(ridge_pred))
+
+
+lasso_pred <- predict(cv.lasso, s = cv.lasso$lambda.min, newx = test_matrix)
+lasso_pred_matrix <- matrix(exp(lasso_pred))
+
+# write.csv(ridge_pred_matrix, "ridge_pred.csv")
+# write.csv(lasso_pred_matrix, "lasso_pred.csv")
+```
+
+
+For choosing the tuning parameters for both methods I calculated a lot of lambda values with my grid and chose the one that resulted in the smallest error for each of the models.  Based on the RMSE values I calculated the lasso method will have a better interpretation of the model. This is because the RMSEs I calcualted for each lasso and ridge were 0.1419154 and 0.145231 respectively. This also holds true when I look at the kaggle true RMSE values which also line up with my calculations.  
+The coefficients work the same way as the other models where the coefficient values correspond to how much the log of the price changes when that variable is increased.
+
+
+# GAM Model
+
+```{r}
+fit.gam <- gam(SalePrice ~ s(LotArea) + Street + s(OverallQual) + s(OverallCond) + s(YearBuilt) + s(MasVnrType) + s(ExterQual) + s(BsmtExposure) + s(BsmtFinType1)  + s(BsmtFinSF1) + s(HeatingQC) + s(X2ndFlrSF) + s(GrLivArea) + KitchenAbvGr + s(BedroomAbvGr) + s(KitchenQual) + s(Functional) + s(FireplaceQu) + s(GarageCars) + s(ScreenPorch)+ s(SaleCondition) , data = train)
+summary(fit.gam)
+```
+
+
+
+
+```{r}
+cv_error <- c()
+for (i in 1:20){
+  fit.gam <- gam(SalePrice ~ s(LotArea,i) + Street + s(OverallQual,i) + s(OverallCond,i) + s(YearBuilt,i) + s(MasVnrType,i) + s(ExterQual,i) + s(BsmtExposure,i) + s(BsmtFinType1,i)  + s(BsmtFinSF1,i) + s(HeatingQC,i) + s(X2ndFlrSF,i) + s(GrLivArea,i) + KitchenAbvGr + s(BedroomAbvGr,i) + s(KitchenQual,i) + s(Functional,i) + s(FireplaceQu,i) + s(GarageCars,i) + s(ScreenPorch,i)+ s(SaleCondition,i) , data = train)
+  cv_error[i] <- cv.glm(train,fit.gam,K=10)$delta[1]
+}
+which.min(cv_error)
+min(cv_error)
+```
+
+
+When fitting the GAM model I first did the model without using degrees of freedom and letting R use the default values. I then used 10 fold cross validation to check all the varibles with degrees of freedom ranging from 1 to 20.  After running this CV I found that 10 degrees of freedom gave me the lowest cv error so I then fitted the model with all the variables with this change.  Based of this model the 3 most important variables were similar to the other models using overall quality, year built and above ground living space. My calculated RMSE was much lower than the true rmse. However this model still gave me my lowest true RMSE yet, surpassing forward subset selection method.  
+
+```{r}
+fit.gam <- gam(SalePrice ~ s(LotArea,10) + Street + s(OverallQual,10) + s(OverallCond,10) + s(YearBuilt,10) + s(MasVnrType,10) + s(ExterQual,10) + s(BsmtExposure,10) + s(BsmtFinType1,10)  + s(BsmtFinSF1,10) + s(HeatingQC,10) + s(X2ndFlrSF,10) + s(GrLivArea,10) + KitchenAbvGr + s(BedroomAbvGr,10) + s(KitchenQual,10) + s(Functional,10) + s(FireplaceQu,10) + s(GarageCars,10) + s(ScreenPorch,10)+ s(SaleCondition,10) , data = train)
+summary(fit.gam)
+gam_pred <- predict(fit.gam, newdata = test)
+gam_pred_matrix <- matrix(exp(gam_pred))
+#write.csv(gam_pred_matrix, "gam_pred.csv")
+```
+
+
+# Tree Regression
+``` {r}
+
+fit_tree <- tree(SalePrice ~ ., data = train)
+summary(fit_tree)
+```
+```{r}
+plot(fit_tree)
+text(fit_tree, pretty = 0)
+```
+```{r}
+cv_tree <- cv.tree(fit_tree)
+
+plot(cv_tree$size, cv_tree$dev, type = 'b')
+
+```
+
+For my tree regression model I fit a full tree and then used pruning to find which size gave me the lowest dev.  I found that the full tree gave me the lowest error so I then used the full tree to move onto cross validation calculation.  My calculated RMSE from my CV calculation was lower than kaggles true RMSE but the scores were very close so I was happy with the outcome of this model. Interpreting this model is different than the others since there isnt a coefficient that goes along with each variable. The tree splits for different levels of each of the most important variables.  for the first branch we see that Overall quality split at 0.624  and it was also in the second layer along with above ground living space.   
+
+
+```{r}
+folds <- sample(1:10,nrow(train),replace = T)
+cv.errors <- rep(NA, 10)
+
+for (k in 1:10){
+  fit_tree <- tree(SalePrice ~ ., data = train[folds != k,])
+  
+  
+  
+  tree.pred <- predict(fit_tree, train[folds == k,], type = "vector")
+  
+  cv.errors[k] = mean((train$SalePrice[folds == k]-tree.pred)^2)
+  
+}
+sqrt(mean(cv.errors))
+
+```
+
+```{r}
+tree_pred <- predict(fit_tree, test, type = "vector")
+tree_pred_matrix <- matrix(exp(tree_pred))
+#write.csv(tree_pred_matrix, "tree_pred.csv")
+```
+
+# Bagging
+
+```{r}
+
+ncol(train)-1
+fit_bag <- randomForest(SalePrice ~ ., data = train, 
+                             mtry = 80, importance = TRUE)
+
+fit_bag
+#importance(fit_bag)
+plot(fit_bag)
+
+```
+```{r}
+bag_pred <- predict(fit_bag, test, type = "response")
+bag_pred_matrix <- matrix(exp(bag_pred))
+#write.csv(bag_pred_matrix, "bag_pred.csv")
+```
+
+
+```{r}
+folds <- sample(1:10,nrow(train),replace = T)
+cv.errors <- rep(NA, 10)
+
+for (k in 1:10){
+  fit_bag <- randomForest(SalePrice ~ ., data = train[folds != k,], 
+                             mtry = 80, importance = TRUE)
+  
+  
+  
+  tree.pred <- predict(fit_bag, train[folds == k,], type = "response")
+  
+  cv.errors[k] = mean((train$SalePrice[folds == k]-tree.pred)^2)
+  
+}
+sqrt(mean(cv.errors))
+
+```
+
+The Bagging model was similar to the tree regression.  I used an mtry of 80 since there are 81 columns and mtry for bagging uses cols - 1.  The graph above shows how many trees are needed to lower the error and we can see that around 100 trees the graph start to flatten out.  My calculated RMSE was lower than kaggles true RMSE but I was still happy with my prediction accuracy for this model since it was still below .15. 
+
+# Random Forest
+
+```{r}
+
+sqrt(ncol(train) - 1) ## square root of p
+fit_random_forest <- randomForest(SalePrice ~ ., data = train, 
+                             mtry = 9, importance = TRUE)
+fit_random_forest
+plot(fit_random_forest)
+```
+```{r}
+rand_forest_pred <- predict(fit_bag, test, type = "response")
+rand_forest_pred_matrix <- matrix(exp(rand_forest_pred))
+#write.csv(rand_forest_pred_matrix, "rand_forest_pred.csv")
+```
+
+
+```{r}
+folds <- sample(1:10,nrow(train),replace = T)
+cv.errors <- rep(NA, 10)
+
+for (k in 1:10){
+  fit_random_forest <- randomForest(SalePrice ~ ., data = train[folds != k,], 
+                             mtry = 9, importance = TRUE)
+  
+  
+  
+  tree.pred <- predict(fit_random_forest, train[folds == k,], type = "response")
+  
+  cv.errors[k] = mean((train$SalePrice[folds == k]-tree.pred)^2)
+  
+}
+sqrt(mean(cv.errors))
+
+```
+
+Similar to Bagging, random forest also uses the random forest r function but, unlike bagging, we use a smaller mtry. We calculate the mtry we use by taking the square root of the number of columns and then subtracting 1.  We also get a similar graph to the bagging method, showing that the number of trees starts to level off lowering the error around 100 trees.  My calculated RMSE for Random forest was lower than that of bagging and the true RMSE value corroborates this observation.  However also like the true RMSE for bagging, the true RMSE for random forest is higher than my calculated one but I am still satisfied of how this model was fitted.
+
+# GBM Model
+```{r}
+
+Sale <- train$SalePrice
+fit_boost <- gbm(SalePrice ~ . , 
+                      data = train, 
+                      distribution = "gaussian", shrinkage = 0.01, 
+                      n.tree = 5000, interaction.depth = 4)
+fit_boost
+boost.pred <- predict(fit_boost, train[folds == k,], type = "response")
+```
+
+```{r}
+folds <- sample(1:10,nrow(train),replace = T)
+cv.errors <- rep(NA, 10)
+
+for (k in 1:10){
+  fit_boost <- gbm(SalePrice ~ . , 
+                      data = train[folds != k,], 
+                      distribution = "bernoulli", shrinkage = 0.01, 
+                      n.tree = 5000, interaction.depth = 4)
+  
+  
+  
+  boost.pred <- predict(fit_boost, train[folds == k,], type = "response")
+  
+  cv.errors[k] = sqrt(mean((train$SalePrice[folds == k]-boost.pred)^2))
+  
+}
+mean(cv.errors)
+
+```
+I was not sure how to get the GBM model to work since I always got from the model when I ran it that all 80 predictors had some influence and the model didnt calculate predictions for me, Always outputting NAN values
+
+# Best Model
+After running though all of my models the one that performed the best based both of my calculations and the true RMSE values was the GAM model. This model was good because it has a lot of flexibility with its knots and we can tune these knots well with cross validation to get a model that more accurately predicts the housing prices.  The KNN method did not work very well because KNN is not made for predicting a data that has a high dimensionality.  
+
+# Summary
+Even though this data set had many variables that we could use to predict the sale price for each house. Using the methods we learned throughout the year I was able to make many models with good prediction  accuracy and learn how to clean and manipulate data to work most effectively with my prediction tools. I am excited to apply my knowledge to further research and more kaggle competitions, as well as to my career once I get a good data science job.  
+
+# Further questions
+
+After finishing this project I wonder If I could tune the GAM model better so I could tune each of the variables I used in the function for their own degrees of freedom.  I also wonder If I could predict another variable in the model besides sale price such as overall quality or square footage of the house based on the same data.  I am excited to see where data science and statistics can take me.
+
+
+
